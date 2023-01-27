@@ -24,8 +24,8 @@ AsyncWebSocket ws("/ws");
 
 
 // Replace with your network credentials
-const char* ssid = "Vaseom";
-const char* password = "leovaseom";
+const char* ssid = "Your SSID here";
+const char* password = "Your PWD here";
 
 
 
