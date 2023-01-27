@@ -1,0 +1,71 @@
+<!--  ESP32 Time selector v1.0 -->
+<!-- Sliders based upon: https://randomnerdtutorials.com/esp32-web-server-websocket-sliders/ -->
+<!-- Grid-Card with start/stop time and day of week selector -->
+
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title> DASHBOARD</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="stylesheet" type="text/css" href="style.css">
+    <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.7.2/css/all.css" integrity="sha384-fnmOCqbTlWIlj8LyTjo7mOUStjsKC4pOpQbqyi7RrhN7udi9RwhKkMHpvLbHG9Sr" crossorigin="anonymous">
+    <link rel="stylesheet" type="text/css" href="style.css">
+</head>
+<body>
+    <div class="topnav">
+     <div id="grid">    
+        <div id="item1"> <h1> Time Selector </h1></div>  
+    </div>
+    </div>
+    <div class="content">
+        <div class="card-grid">
+            <div class="card">
+                <div class="title-settings" >
+                    <div>
+                <p  class="card-title" >Time & Day Setting </p>
+                </div>
+                <div>
+                <p id="druppel1" class="fas fa-tint" ></p>
+                </div>
+            </div>
+                <p class="switch">
+                    <input type="range" onchange="updateSlider(this)" id="slider1" min="0" max="2" step="1" value ="0" class="slider">
+                </p>
+                <p class="state">Status: <span id="sliderValue1"></span> </p>
+                <p class= "state">
+                <form>
+                    <div class="time-settings" >
+                        <div>
+                    <label for="Zone1StartTijd">Timer starts at:  </label> 
+                </div>
+                <div>
+                        <input type="time" oninput="TimeSend(this)" name="Starttijd" id="startTijd1">
+                    </div>
+                    <div>
+                    <label for="Zone1StopTijd">Timer stops at: </label>
+                </div>
+                <div>
+                        <input type="time" oninput="TimeSend(this)" name="Stoptijd" id="stopTijd1">   
+                    </div>   
+                </div> 
+            </form>
+        </p>
+            <p class = "Dag"> <i>Su Mo Tu We Th Vr Sa </i></p>    
+            <label class= "dagSwitch1">
+                <input type="checkbox" onchange="toggleCheckbox(this)" id= "Zo1" >
+                <input type="checkbox" onchange="toggleCheckbox(this)" id= "Ma1" >
+                <input type="checkbox" onchange="toggleCheckbox(this)" id= "Di1" >
+                <input type="checkbox" onchange="toggleCheckbox(this)" id= "Wo1" >
+                <input type="checkbox" onchange="toggleCheckbox(this)" id= "Do1" >
+                <input type="checkbox" onchange="toggleCheckbox(this)" id= "Vr1" >
+                <input type="checkbox" onchange="toggleCheckbox(this)" id= "Za1" >
+                <span class="PushButton"></span>
+            
+            </div>
+
+ </div>
+    <script src="script.js"></script>
+</body>
+</html>

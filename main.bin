@@ -1,0 +1,547 @@
+#include <Arduino.h>
+/* Smart Watering System  Version 0.3
+Single channel watering system
+Including WiFi manager and OTA programming.
+*/
+
+#include <WiFi.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+#include <AsyncElegantOTA.h>
+#include "SPIFFS.h"
+#include <Arduino_JSON.h>
+#include "time.h"
+
+
+// Create AsyncWebServer object on port 80
+AsyncWebServer server(80);
+
+// Create a WebSocket object
+AsyncWebSocket ws("/ws");
+
+
+// WiFi credentials
+const char* PARAM_INPUT_1 = "ssid";
+const char* PARAM_INPUT_2 = "pass";
+
+//Variables to save values in SPIFFS
+String ssid ="Vaseom";
+String pass ="leovaseom";
+String settings;
+
+// File paths to save input values permanently
+const char* ssidPath = "/ssid.txt";
+const char* passPath = "/pass.txt";
+const char* settingsPath = "/settings.txt";
+
+
+// Set constant variables
+const int ledPin1 = 13;  // valve 1
+const int ledPin5 = 2;  // Signal Humiditysensor above treshhold.
+const int watFlow = 4;   // Input for Waterflow sensor
+const int humSens = 34;  // Analog input for Humidity sensor
+const long interval = 3000;  // interval at which the time is checked (milliseconds)
+const long interval1 = 5000;  // interval to wait for Wi-Fi connection & actual time/date  (milliseconds)
+const long interval2 = 2000; // interval for measuring Humidity
+unsigned long previousMillis = 0;
+unsigned long previousMillis1 = 0;
+unsigned long previousMillis2 = 0;
+
+const int humDry = 4095; // max setting for Humidity sensor
+const int humWet = 1945; // min setting for Humidity sensor
+
+//Create Strings for JSON File
+String message;
+String sliderNumber = "0";
+String sliderValue1;  
+String sliderValueH;
+String startTijd1;
+String stopTijd1;
+String Week1;
+String HumSet;
+
+String HumRead;
+String Temp;
+String Humidity;
+String WatFlow;
+String Time;
+
+//Create various integers to use during the sketch
+int Zo1; int Ma1; int Di1; int Wo1; int Do1; int Vr1; int Za1;
+int sv1 ;
+int svH ;
+int hrD ;
+int ledState = LOW;
+int humValue = 0;
+int chan1 = LOW; 
+int x = 0;
+int y = 0;
+
+// Parameters for time setting 
+const char* ntpServer = "pool.ntp.org";
+const long  gmtOffset_sec = 3600;
+const int   daylightOffset_sec = 0;
+int today;
+int activeDay1= 0; int activeTime1 = 0; int active1 = LOW;int channel1 = LOW;
+int uren; 
+int minuten;
+int startTime1;
+int stopTime1;
+String string1;
+int tijdNu;
+int uurNu;
+int minNu;
+int dst;
+
+
+//Json Variables to Hold All Values
+JSONVar AllValues; // All values from Webpage to ESP32
+JSONVar Settings; // All values to be stored in SPIFFS
+JSONVar Sensors; // All values form ESP32 to webpage
+
+
+// Fill day parameters from Week Array
+void WeekDay(){
+      if (Week1[1] == '1'){   Zo1 = 1;  } else { Zo1 = 0;}
+      if (Week1[3] == '1'){   Ma1 = 1;  } else { Ma1 = 0;}
+      if (Week1[5] == '1'){   Di1 = 1;  } else { Di1 = 0;}
+      if (Week1[7] == '1'){   Wo1 = 1;  } else { Wo1 = 0;}
+      if (Week1[9] == '1'){   Do1 = 1;  } else { Do1 = 0;}
+      if (Week1[11] == '1'){  Vr1 = 1;  } else { Vr1 = 0;}
+      if (Week1[13] == '1'){  Za1 = 1;  } else { Za1 = 0;}
+}
+
+// Initialize SPIFFS
+void initFS() {
+  if (!SPIFFS.begin()) {
+    Serial.println("An error has occurred while mounting SPIFFS");
+  }
+  else{
+   Serial.println("SPIFFS mounted successfully");
+  }
+}
+
+// Read Files from SPIFFS
+String readFile(fs::FS &fs, const char * path){
+ // Serial.printf("Reading file: %s\r\n", path);
+
+  File file = fs.open(path);
+  if(!file || file.isDirectory()){
+    Serial.println("- failed to open file for reading");
+    return String();
+  }
+  
+  String fileContent;
+  while(file.available()){
+    fileContent = file.readStringUntil('\n');
+    break;     
+  }
+  return fileContent;
+}
+
+// Write files to SPIFFS
+void writeFile(fs::FS &fs, const char * path, const char * message){
+  Serial.printf("Writing file: %s\r\n", path);
+
+  File file = fs.open(path, FILE_WRITE);
+  if(!file){
+    Serial.println("- failed to open file for writing");
+    return;
+  }
+  if(file.print(message)){
+    Serial.println("- file written");
+  } else {
+    Serial.println("- Write failed");
+  }
+}
+// Read Settings from SPIFFS
+void readSettings(){
+  String jsonString2 = readFile(SPIFFS, settingsPath);
+  Settings = JSON.parse(jsonString2);
+  sliderValue1 = Settings["sliderValue1"];
+  startTijd1 = Settings["startTijd1"];
+  stopTijd1 = Settings["stopTijd1"];
+  Week1 = Settings["Week1"];
+  HumSet = Settings["HumSet"];
+  sv1 = sliderValue1.toInt();
+}
+
+//Get  Values from the HTML page
+String getAllValues(){
+ // AllValues["HumRead"] = String(HumRead);
+  AllValues["HumSet"] = String(HumSet);
+  AllValues["sliderValue1"] = String(sliderValue1);
+  AllValues["startTijd1"] = String(startTijd1);
+  AllValues["stopTijd1"] = String(stopTijd1);
+  AllValues["Week1"] = String(Week1);
+  String jsonString = JSON.stringify(AllValues);
+  return jsonString;
+}
+
+// Get Values from ESP32 sensors 
+String getSensors(){
+  Sensors["HumRead"] = String(HumRead);
+  Sensors["Temp"] = String(Temp);
+  Sensors["Humidity"] = String(Humidity);
+  Sensors["WatFlow"] = String(WatFlow);
+  Sensors["channel1"] = String(channel1);
+  String jsonSensor = JSON.stringify(Sensors);
+  return jsonSensor;
+}
+
+// Initialize WiFi with WiFi Manager
+bool initWiFi() {
+  if(ssid=="" || pass==""){
+    Serial.println("Undefined SSID or Password.");
+    return false;
+  }
+
+  WiFi.mode(WIFI_STA);
+
+WiFi.begin(ssid.c_str(), pass.c_str());
+
+  Serial.println("Connecting to WiFi...");
+
+  unsigned long currentMillis1 = millis();
+  previousMillis1 = currentMillis1;
+
+  while(WiFi.status() != WL_CONNECTED) {
+    currentMillis1 = millis();
+    if (currentMillis1 - previousMillis1 >= interval1) {
+      Serial.println("Failed to connect.");
+      return false;
+    }
+  }
+
+  Serial.println(WiFi.localIP());
+  return true;
+}
+// Get the date & time from the NTP server
+void printLocalTime()
+{
+  struct tm timeinfo;
+ int  var = 0;
+  while(!getLocalTime(&timeinfo)){
+while (var < 10) {
+      Serial.println("Failed to obtain Timeinfo.");
+      delay(1000);
+      var++;
+    }
+    ESP.restart(); // As Time is essential for the program, restart if not available
+      return ;
+}
+
+    dst = timeinfo.tm_isdst;
+  if ( y ==0){
+  Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
+  y=1;  
+  }
+
+  
+struct tm {
+   int tm_sec;         /* seconds,  range 0 to 59          */
+   int tm_min;         /* minutes, range 0 to 59           */
+   int tm_hour;        /* hours, range 0 to 23             */
+   int tm_mday;        /* day of the month, range 1 to 31  */
+   int tm_mon;         /* month, range 0 to 11             */
+   int tm_year;        /* The number of years since 1900   */
+   int tm_wday;        /* day of the week, range 0 to 6    */
+   int tm_yday;        /* day in the year, range 0 to 365  */
+   int tm_isdst;       /* daylight saving time             */
+};
+//Serial.println(timeinfo.tm_mday);
+//Serial.println(timeinfo.tm_year);
+  today = timeinfo.tm_wday;
+  uurNu = timeinfo.tm_hour;
+  minNu = timeinfo.tm_min;
+  tijdNu = (uurNu*100+minNu); // tijdNu is the current time as integer to calculate with
+
+}
+
+// Check if date & time match the set criteria
+void compareDayTime() {
+printLocalTime();
+// read the settings from the Settingsfile in \SPIFFS
+readSettings();
+  // Check the days set in the browser
+WeekDay();
+
+  // Check if today is a day that is set to active
+ activeDay1 =0;
+if (Zo1 == 1 && today == 0) { activeDay1 =1;} 
+if (Ma1 == 1 && today == 1) { activeDay1 =1;} 
+if (Di1 == 1 && today == 2) { activeDay1 =1;}
+if (Wo1 == 1 && today == 3) { activeDay1 =1;}
+if (Do1 == 1 && today == 4) { activeDay1 =1;}
+if (Vr1 == 1 && today == 5) { activeDay1 =1;}
+if (Za1 == 1 && today == 6) { activeDay1 =1;}
+
+          minuten = ((startTijd1.substring(3,5)).toInt());
+          uren =((startTijd1.substring(0,2)).toInt() * 100);
+          startTime1 = uren+minuten; // startTime1 is the start time as integer to calculate with
+           minuten = ((stopTijd1.substring(3,5)).toInt());
+           uren =((stopTijd1.substring(0,2)).toInt() * 100);
+          stopTime1 = (uren+minuten); // stopTime1 is the stop time as integer to calculate with
+// Console printing for debug purposes
+/*Serial.print("    Zo1 = ");
+Serial.print(Zo1);
+Serial.print("    today = ");
+Serial.print(today);
+Serial.print("    activeDay1 = ");
+Serial.print(activeDay1);
+Serial.print("   De tijd is nu: ");
+Serial.print(tijdNu);
+Serial.print("    startTime1 = ");
+Serial.print(startTime1);
+Serial.print("    stopTime1 = ");
+Serial.println(stopTime1);
+Serial.print("   slider sv1 = ");
+Serial.print(sv1);
+Serial.print("activeTime1 = ");
+Serial.print(activeTime1);
+  Serial.print("  HumSet = ");
+  Serial.print(HumSet);
+  Serial.print("  svH = ");
+  Serial.print(svH);
+  Serial.print("  HumRead = ");
+  Serial.print(HumRead);
+  Serial.print("  srD = ");
+  Serial.print(hrD);
+  Serial.print("  channel1 = ");
+  Serial.print(channel1);
+*/
+
+ // Check if actual time (tijdNu) is between start and stoptime.(and take care of the day change)
+
+if (startTime1 < stopTime1) { // if start time is smaller than stop time so same day
+  if (tijdNu >= startTime1 && tijdNu < stopTime1) {activeTime1 = 1;} 
+else if (tijdNu >= stopTime1) {activeTime1 = 0;} 
+  else {activeTime1 = 0;}
+}
+if (startTime1 > stopTime1) { // if start time is bigger than stop time so stoptime is next day
+  if (tijdNu >= startTime1 ) {activeTime1 = 1;} 
+else if (tijdNu < stopTime1) {activeTime1 = 1;} 
+  else if(tijdNu >= stopTime1 && tijdNu < startTime1){activeTime1 = 0;}
+}
+// Humidity settings
+  svH  = HumSet.toInt(); // set Humidity setpoint to integer
+  hrD = HumRead.toInt(); // set humidity readout to integer
+
+// Channel output control
+  // if the slider is set to 0 the the channel is always off
+if (sv1 == 0) {channel1 = 0;}
+
+// if the slider is set to 1 then the channel is on within the set timeperiod and the day and the humidity is below the setpoint
+  if (sv1 == 1 && activeTime1 == 1 && (svH > hrD) && activeDay1 == 1){ 
+    channel1 = 1; 
+  }
+  else {channel1 = 0;}
+
+  // if slider is set to ON, then channel is always on
+  if (sv1 == 2){ channel1= 1;} 
+
+   // Finaly set the LedPin ON or OFF
+      digitalWrite(ledPin1,channel1);
+
+}
+
+// routine to notify the clients of changed HTML values
+void notifyClients(String AllValues) {
+  ws.textAll(AllValues); // send the HTML values to all connected clients
+}
+// routine to notify the clients of changed Sensor values
+void notifyClients2(String Sensors) {
+  ws.textAll(Sensors); // send the  sensor values to all connected clients
+}
+
+// Handler for incomming Json Messages.
+void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
+  AwsFrameInfo *info = (AwsFrameInfo*)arg;
+  if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
+    data[len] = 0;
+    message = (char*)data;
+    Serial.println("Binnengekomen bericht is: " + message);
+    if (strcmp((char*)data, "getValues") == 0) {
+      // If the message is "getValues" then send all values stored in settings to the client.
+      readSettings();
+      notifyClients(getAllValues());
+    }
+    else if (strcmp((char*)data, "getSensors")== 0){
+      notifyClients2(getSensors());
+    }
+    else{
+        JSONVar obj =JSON.parse(message);
+        sliderNumber = obj["sliderNumber"];
+   if (sliderNumber == "1"){sliderValue1 = obj["sliderValue"];}
+    if (obj["startTijd1"] > ""){startTijd1 = obj["startTijd1"];}
+    if (obj["stopTijd1"] > ""){stopTijd1 = obj["stopTijd1"];}
+   
+       sv1 = sliderValue1.toInt();
+
+          
+          Week1 = obj["Week1"];
+
+   if (Week1 > ""){
+    WeekDay();
+    }
+
+    // Reading and setting the Humidity values:
+    if (sliderNumber == "H"){sliderValueH = obj["HumSet"];
+    HumSet = sliderValueH;
+    Serial.print("HumSet =: "); Serial.println(HumSet);
+    }
+
+    // Get all values and write to settings in SPIFFS
+            settings = getAllValues();
+            Serial.print("settings na wijziging vanuit browser (worden opgeslagen): ");
+            Serial.println(settings);
+            writeFile(SPIFFS, settingsPath, settings.c_str());
+       // Notify all clients with the new values
+                   notifyClients(getAllValues());
+                   compareDayTime();
+    }
+ }
+
+}
+// handler for websocket events
+void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
+  switch (type) {
+    case WS_EVT_CONNECT:
+      Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+      break;
+    case WS_EVT_DISCONNECT:
+      Serial.printf("WebSocket client #%u disconnected\n", client->id());
+      break;
+    case WS_EVT_DATA:
+      handleWebSocketMessage(arg, data, len);
+      break;
+    case WS_EVT_PONG:
+    case WS_EVT_ERROR:
+      break;
+  }
+}
+
+void initWebSocket() {
+  ws.onEvent(onEvent);
+  server.addHandler(&ws);
+}
+
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(ledPin1, OUTPUT);
+  pinMode(ledPin5, OUTPUT);
+  pinMode(humSens, INPUT);
+  initFS();
+  initWiFi();
+  AsyncElegantOTA.begin(&server);    // Start ElegantOTA
+
+  // Load values saved in SPIFFS
+  ssid = readFile(SPIFFS, ssidPath);
+  pass = readFile(SPIFFS, passPath);
+  settings = readFile(SPIFFS, settingsPath);
+  Serial.println(ssid);
+  Serial.println(pass);
+  Serial.println(settings);
+  // Set values from the SPIFFS settingsfile 
+readSettings();
+  
+// this part is to set Wifi correctly using WifiManager
+  if(initWiFi()) {
+    // Route for root / web page
+
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+      request->send(SPIFFS, "/index.html", "text/html", false);
+    });
+    server.serveStatic("/", SPIFFS, "/");
+    
+        server.begin();
+  }
+  else {
+    // Connect to Wi-Fi network with SSID and password
+    Serial.println("Setting AP (Access Point)");
+    // NULL sets an open Access Point
+    WiFi.softAP("SGS-WIFI-MANAGER", NULL);
+
+    IPAddress IP = WiFi.softAPIP();
+    Serial.print("AP IP address: ");
+    Serial.println(IP); 
+
+    // Web Server Root URL
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+      request->send(SPIFFS, "/wifimanager.html", "text/html");
+    });
+  server.begin();
+  Serial.println("HTTP server started");
+    
+    server.serveStatic("/", SPIFFS, "/");
+    
+    server.on("/", HTTP_POST, [](AsyncWebServerRequest *request) {
+      int params = request->params();
+      for(int i=0;i<params;i++){
+        AsyncWebParameter* p = request->getParam(i);
+        if(p->isPost()){
+          // HTTP POST ssid value
+          if (p->name() == PARAM_INPUT_1) {
+            ssid = p->value().c_str();
+            Serial.print("SSID set to: ");
+            Serial.println(ssid);
+            // Write file to save value
+            writeFile(SPIFFS, ssidPath, ssid.c_str());
+          }
+          // HTTP POST pass value
+          if (p->name() == PARAM_INPUT_2) {
+            pass = p->value().c_str();
+            Serial.print("Password set to: ");
+            Serial.println(pass);
+            // Write file to save value
+            writeFile(SPIFFS, passPath, pass.c_str());
+          }
+        }
+      }
+      request->send(200, "text/plain", "Done. ESP will restart, connect to your WiFi");
+      delay(3000);
+    //  ESP.restart();
+});
+
+    server.begin();
+  }
+
+  // Next starting all services
+  initWebSocket();
+    // Web Server Root URL
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(SPIFFS, "/index.html", "text/html");
+  });
+  
+  server.serveStatic("/", SPIFFS, "/");
+
+    //init and get the time
+  configTime(gmtOffset_sec,daylightOffset_sec, ntpServer);
+  printLocalTime();
+}
+
+
+void loop() {
+// compare the day and time every interval (1 second) period
+  unsigned long currentMillis = millis();
+    if (currentMillis - previousMillis >= interval) {
+      compareDayTime();
+    previousMillis = currentMillis;
+    }
+            // Read Humidity value every interval2 (5 second) period.
+  unsigned long currentMillis2 = millis();
+    if (currentMillis2 - previousMillis2 >= interval2) {
+      humValue = analogRead (humSens);
+      HumRead = map(humValue, humWet, humDry, 100, 0);
+      getSensors();
+     // Serial.print("Read Humidity value =: "); Serial.println(humValue);
+     // Serial.print("Read Humidity perc =: "); Serial.println(HumRead);
+            previousMillis2 = currentMillis2;
+            notifyClients2(getSensors());
+      }
+
+    ws.cleanupClients();
+
+
+}
